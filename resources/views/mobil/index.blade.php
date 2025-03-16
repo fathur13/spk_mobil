@@ -33,24 +33,28 @@
                         <div class="input-group">
                             <span class="input-group-text">Rp</span>
                             <input type="text" id="min_harga" name="min_harga" class="form-control"
-                                placeholder="Min Harga">
+                                placeholder="Min Harga" value="{{ request('min_harga') }}" oninput="formatRupiah(this)">
                         </div>
                     </div>
+
                     <!-- Input Max Harga -->
                     <div class="col-md-4">
                         <div class="input-group">
                             <span class="input-group-text">Rp</span>
                             <input type="text" id="max_harga" name="max_harga" class="form-control"
-                                placeholder="Max Harga">
+                                placeholder="Max Harga" value="{{ request('max_harga') }}" oninput="formatRupiah(this)">
                         </div>
                     </div>
+
                     <!-- Input Min Tahun -->
                     <div class="col-md-4">
-                        <input type="number" name="min_tahun" class="form-control" placeholder="Min Tahun">
+                        <input type="number" name="min_tahun" class="form-control" placeholder="Min Tahun" min="1900"
+                            max="{{ date('Y') }}">
                     </div>
                     <!-- Input Max Tahun -->
                     <div class="col-md-4">
-                        <input type="number" name="max_tahun" class="form-control" placeholder="Max Tahun">
+                        <input type="number" name="max_tahun" class="form-control" placeholder="Max Tahun" min="1900"
+                            max="{{ date('Y') }}">
                     </div>
                     <!-- Pilihan Transmisi -->
                     <div class="col-md-4">
@@ -100,7 +104,8 @@
                         <th>Bahan Bakar</th>
                         <th>Seater</th>
                         <th>Bobot</th>
-                        <th>Aksi</th> <!-- Tambahkan Kolom Aksi -->
+                        <th>Peringkat</th> <!-- Kolom Peringkat -->
+                        <th>Aksi</th> <!-- Kolom Aksi -->
                     </tr>
                 </thead>
                 <tbody>
@@ -111,11 +116,13 @@
                             <td>{{ $mobil->tahun }}</td>
                             <td>{{ $mobil->transmisi }}</td>
                             <td>{{ $mobil->bahan_bakar }}</td>
-                            <td>{{ $mobil->seater }}</td>
+                            <td>{{ $mobil->seater ?? 'N/A' }}</td>
                             <td class="fw-bold">{{ $mobil->c1 + $mobil->c2 + $mobil->c3 + $mobil->c4 + $mobil->c5 }}</td>
+                            <td>{{ $mobil->ranking ?? 'N/A' }}</td> <!-- Menampilkan peringkat -->
                             <td>
-                                <!-- Tombol Edit -->
-                                <a href="{{ route('mobils.edit', $mobil->id) }}" class="btn btn-warning btn-sm">
+                                <!-- Tombol Edit dengan Konfirmasi -->
+                                <a href="{{ route('mobils.edit', $mobil->id) }}" class="btn btn-warning btn-sm"
+                                    onclick="return confirm('Apakah Anda yakin ingin mengedit mobil ini?');">
                                     ✏ Edit
                                 </a>
 
@@ -132,7 +139,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="8" class="text-center text-danger">❌ Tidak ada mobil yang ditemukan.</td>
+                            <td colspan="9" class="text-center text-danger">❌ Tidak ada mobil yang ditemukan.</td>
                         </tr>
                     @endforelse
                 </tbody>
@@ -156,16 +163,15 @@
 
         <!-- Format Harga dengan Titik -->
         <script>
-            function formatRupiah(element) {
-                element.addEventListener('input', function(e) {
-                    let value = this.value.replace(/\D/g, '');
-                    value = new Intl.NumberFormat('id-ID').format(value);
-                    this.value = value;
-                });
-            }
+            document.querySelector('form').addEventListener('submit', function(e) {
+                // Menghapus format Rp sebelum mengirim data
+                let minHarga = document.getElementById('min_harga');
+                let maxHarga = document.getElementById('max_harga');
 
-            formatRupiah(document.getElementById('min_harga'));
-            formatRupiah(document.getElementById('max_harga'));
+                // Hapus titik (sebagai pemisah ribuan) sebelum mengirimkan data ke server
+                minHarga.value = minHarga.value.replace(/\D/g, '');
+                maxHarga.value = maxHarga.value.replace(/\D/g, '');
+            });
         </script>
     </div>
 @endsection

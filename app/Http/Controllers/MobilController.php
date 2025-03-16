@@ -10,11 +10,147 @@ class MobilController extends Controller
     /**
      * Menampilkan daftar mobil.
      */
-    public function index()
+    public function index(Request $request)
     {
-        $mobils = Mobil::all(); // Mengambil semua data mobil dari database
+        $query = Mobil::query();
+
+        // Filter berdasarkan input pencarian
+        if ($request->has('min_harga')) {
+            $query->where('harga', '>=', $request->min_harga);
+        }
+        if ($request->has('max_harga')) {
+            $query->where('harga', '<=', $request->max_harga);
+        }
+        if ($request->has('min_tahun')) {
+            $query->where('tahun', '>=', $request->min_tahun);
+        }
+        if ($request->has('max_tahun')) {
+            $query->where('tahun', '<=', $request->max_tahun);
+        }
+        if ($request->has('transmisi')) {
+            $query->where('transmisi', $request->transmisi);
+        }
+        if ($request->has('bahan_bakar')) {
+            $query->where('bahan_bakar', $request->bahan_bakar);
+        }
+        if ($request->has('seater')) {
+            $query->where('seater', $request->seater);
+        }
+
+        $mobils = Mobil::all(); // Mengambil semua data tanpa pagination
+
         return view('mobil.index', compact('mobils'));
     }
+
+    /**
+     * Fungsi untuk menghitung ranking menggunakan metode Fuzzy TOPSIS
+     */
+    private function topsisRanking($mobils)
+    {
+        // Matriks Keputusan
+        $matrix = $mobils->map(function ($mobil) {
+            return [
+                $mobil->c1,
+                $mobil->c2,
+                $mobil->c3,
+                $mobil->c4,
+                $mobil->c5
+            ];
+        });
+
+        // Normalisasi Matriks
+        $normalizedMatrix = $this->normalizeMatrix($matrix);
+
+        // Menghitung solusi ideal positif dan negatif
+        list($positiveIdeal, $negativeIdeal) = $this->calculateIdealSolutions($normalizedMatrix);
+
+        // Menghitung jarak ke solusi positif dan negatif
+        $positiveDistance = $this->calculateDistance($normalizedMatrix, $positiveIdeal);
+        $negativeDistance = $this->calculateDistance($normalizedMatrix, $negativeIdeal);
+
+        // Menghitung peringkat berdasarkan jarak
+        $ranking = $this->ranking($positiveDistance, $negativeDistance);
+
+        // Menggabungkan peringkat dengan mobil
+        foreach ($mobils as $key => $mobil) {
+            $mobil->ranking = $ranking[$key];
+        }
+
+        // Urutkan berdasarkan ranking
+        return $mobils->sortByDesc('ranking');
+    }
+
+    /**
+     * Normalisasi Matriks Keputusan
+     */
+    private function normalizeMatrix($matrix)
+    {
+        $normalizedMatrix = [];
+        $columns = count($matrix[0]);
+        $rows = count($matrix);
+
+        for ($j = 0; $j < $columns; $j++) {
+            $sum = 0;
+            for ($i = 0; $i < $rows; $i++) {
+                $sum += pow($matrix[$i][$j], 2);
+            }
+            $normFactor = sqrt($sum);
+
+            for ($i = 0; $i < $rows; $i++) {
+                $normalizedMatrix[$i][$j] = $matrix[$i][$j] / $normFactor;
+            }
+        }
+
+        return $normalizedMatrix;
+    }
+
+    /**
+     * Menghitung solusi ideal (positif dan negatif)
+     */
+    private function calculateIdealSolutions($normalizedMatrix)
+    {
+        $positiveIdeal = [];
+        $negativeIdeal = [];
+
+        foreach ($normalizedMatrix[0] as $index => $value) {
+            $positiveIdeal[] = max(array_column($normalizedMatrix, $index));
+            $negativeIdeal[] = min(array_column($normalizedMatrix, $index));
+        }
+
+        return [$positiveIdeal, $negativeIdeal];
+    }
+
+    /**
+     * Menghitung jarak ke solusi ideal
+     */
+    private function calculateDistance($normalizedMatrix, $idealSolution)
+    {
+        $distances = [];
+        foreach ($normalizedMatrix as $index => $mobil) {
+            $distance = 0;
+            foreach ($mobil as $j => $value) {
+                $distance += pow($value - $idealSolution[$j], 2);
+            }
+            $distances[$index] = sqrt($distance);
+        }
+        return $distances;
+    }
+
+    /**
+     * Menghitung perankingan berdasarkan jarak
+     */
+    private function ranking($positiveDistance, $negativeDistance)
+    {
+        $ranking = [];
+        foreach ($positiveDistance as $key => $positive) {
+            $ranking[] = $negativeDistance[$key] / ($positive + $negativeDistance[$key]);
+        }
+
+        // Urutkan berdasarkan perankingan (nilai tertinggi)
+        arsort($ranking);
+        return $ranking;
+    }
+
 
     /**
      * Menampilkan form untuk menambahkan mobil baru.
@@ -30,17 +166,20 @@ class MobilController extends Controller
     public function store(Request $request)
     {
         // Validasi input
-        $request->validate([
-            'nama'        => 'required',
-            'harga'       => 'required|numeric',
-            'tahun'       => 'required|numeric',
-            'transmisi'   => 'required',
-            'bahan_bakar' => 'required',
-            'seater'      => 'required|numeric',
+        $validated = $request->validate([
+            'harga' => 'required|numeric|min:0',
+            'tahun' => 'required|numeric|between:1900,' . date('Y'),
+            'transmisi' => 'required|string',
+            'bahan_bakar' => 'required|string',
+            'seater' => 'required|integer|min:2|max:10', // Menyesuaikan dengan pilihan seater
         ]);
 
+        // Pastikan harga tidak mengandung simbol 'Rp' dan titik
+        $harga = str_replace(['Rp', '.'], '', $request->harga);
+        $harga = (int) $harga; // Ubah menjadi integer jika diperlukan
+
         // Konversi ke bobot kriteria
-        $c1 = $this->convertHargaToC1($request->harga);
+        $c1 = $this->convertHargaToC1($harga);
         $c2 = $this->convertTahunToC2($request->tahun);
         $c3 = $this->convertTransmisiToC3($request->transmisi);
         $c4 = $this->convertBahanBakarToC4($request->bahan_bakar);
@@ -49,7 +188,7 @@ class MobilController extends Controller
         // Simpan ke database
         Mobil::create([
             'nama'        => $request->nama,
-            'harga'       => $request->harga,
+            'harga'       => $harga, // Menyimpan harga yang sudah diproses
             'tahun'       => $request->tahun,
             'transmisi'   => $request->transmisi,
             'bahan_bakar' => $request->bahan_bakar,
@@ -64,6 +203,7 @@ class MobilController extends Controller
         // Redirect ke halaman daftar mobil dengan pesan sukses
         return redirect()->route('mobils.index')->with('success', 'Mobil berhasil ditambahkan!');
     }
+
 
     public function edit($id)
     {
